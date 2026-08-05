@@ -33,7 +33,20 @@
 
             remoteControl.initialize();
 
-            const wasmDsp = new window.WasmDsp();
+            const wasmDsp =
+                new window.WasmDsp(
+                    window.astnovaAudioEngine
+                );
+
+            if (
+                window.astnovaAudioEngine.mode ===
+                "web-audio"
+            ) {
+                window.astnovaAudioEngine
+                    .setBeforePlayHook(
+                        () => wasmDsp.initialize()
+                    );
+            }
 
             window.astnovaPlayer = player;
             window.astnovaDsp = wasmDsp;
@@ -187,22 +200,12 @@
         const forcedEngine =
             query.get("audioEngine");
 
-        const isSimulator =
-            Boolean(window._simulator_exposed);
-
         const useHtmlAudio =
-            forcedEngine === "html" ||
-            (
-                forcedEngine !== "web" &&
-                isSimulator
-            );
+            forcedEngine === "html";
 
         if (useHtmlAudio) {
             console.info(
-                "HTML audio fallback is active.",
-                isSimulator
-                    ? "webOS Simulator detected."
-                    : "Fallback was requested."
+                "HTML audio fallback is active."
             );
 
             return new window.HtmlAudioEngine(
@@ -213,7 +216,7 @@
         }
 
         console.info(
-            "Web Audio engine is active."
+            "Web Audio engine with WASM mpg123 decoding is active."
         );
 
         return new window.AudioEngine();

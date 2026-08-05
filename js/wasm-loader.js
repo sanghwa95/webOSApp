@@ -2,69 +2,156 @@
     "use strict";
 
     class WasmDsp {
-        constructor() {
-            this.instance = null;
-            this.memory = null;
+        constructor(audioEngine) {
+            this.audioEngine = audioEngine;
+            this.node = null;
             this.ready = false;
+            this.wasmReady = false;
+            this.initializationPromise = null;
         }
 
-        async initialize(wasmPath) {
-            if (!wasmPath) {
-                console.log(
-                    "WASM DSP is not configured yet."
+        initialize(options) {
+            if (
+                !this.audioEngine ||
+                this.audioEngine.mode !== "web-audio"
+            ) {
+                return Promise.resolve(false);
+            }
+
+            if (this.ready) {
+                return Promise.resolve(true);
+            }
+
+            if (!this.initializationPromise) {
+                this.initializationPromise =
+                    this.initializeProcessor(
+                        options || {}
+                    );
+            }
+
+            return this.initializationPromise;
+        }
+
+        async initializeProcessor(options) {
+            const wasmPath =
+                options.wasmPath ||
+                "wasm/dsp.wasm";
+
+            const workletPath =
+                options.workletPath ||
+                "js/dsp-worklet.js";
+
+            this.audioEngine.ensureContext();
+
+            const context =
+                this.audioEngine.context;
+
+            if (
+                !context.audioWorklet ||
+                typeof AudioWorkletNode ===
+                    "undefined"
+            ) {
+                console.warn(
+                    "AudioWorklet is not supported. " +
+                    "Playback will continue without PCM interception."
                 );
 
                 return false;
             }
 
-            try {
-                const response = await fetch(wasmPath);
+            const wasmUrl =
+                new URL(
+                    wasmPath,
+                    window.location.href
+                ).href;
 
-                if (!response.ok) {
-                    throw new Error(
-                        `WASM load failed: ${response.status}`
-                    );
-                }
+            const workletUrl =
+                new URL(
+                    workletPath,
+                    window.location.href
+                ).href;
 
-                const bytes =
-                    await response.arrayBuffer();
+            const response = await fetch(wasmUrl);
 
-                const result =
-                    await WebAssembly.instantiate(
-                        bytes,
-                        {}
-                    );
-
-                this.instance = result.instance;
-                this.memory =
-                    result.instance.exports.memory ||
-                    null;
-
-                this.ready = true;
-
-                console.log(
-                    "WASM DSP initialized."
+            if (
+                !response.ok &&
+                response.status !== 0
+            ) {
+                throw new Error(
+                    `WASM load failed: ${response.status}`
                 );
+            }
 
-                return true;
-            } catch (error) {
-                console.warn(
-                    "WASM DSP initialization skipped:",
+            const wasmBytes =
+                await response.arrayBuffer();
+
+            await WebAssembly.compile(wasmBytes);
+            await context.audioWorklet.addModule(
+                workletUrl
+            );
+
+            this.node = new AudioWorkletNode(
+                context,
+                "astnova-pcm-processor",
+                {
+                    numberOfInputs: 1,
+                    numberOfOutputs: 1,
+                    outputChannelCount: [2],
+                    processorOptions: {
+                        wasmBytes
+                    }
+                }
+            );
+
+            this.node.port.onmessage = (event) => {
+                this.handleWorkletMessage(
+                    event.data
+                );
+            };
+
+            this.node.onprocessorerror = (error) => {
+                console.error(
+                    "DSP AudioWorklet processor failed:",
                     error
                 );
+            };
 
-                this.ready = false;
-                return false;
-            }
+            this.audioEngine.setProcessorNode(
+                this.node
+            );
+
+            this.ready = true;
+
+            console.log(
+                "PCM interception node connected."
+            );
+
+            return true;
         }
 
-        process(samples) {
-            /*
-             * 이후 C DSP 함수가 구현되면
-             * Float32Array PCM 데이터를
-             * WASM 메모리에 전달합니다.
-             */
-            return samples;
+        handleWorkletMessage(message) {
+            if (!message || !message.type) {
+                return;
+            }
+
+            if (message.type === "wasm-ready") {
+                this.wasmReady = true;
+
+                console.log(
+                    "WASM PCM processor is ready."
+                );
+
+                return;
+            }
+
+            if (message.type === "wasm-error") {
+                this.wasmReady = false;
+
+                console.error(
+                    "WASM PCM processor initialization failed:",
+                    message.message
+                );
+            }
         }
     }
 

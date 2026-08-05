@@ -3,8 +3,14 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
+    "build:wasm": "node tools/build-wasm.js",
+    "prepare:vendor": "node tools/prepare-vendor.js",
     "playlist": "node tools/generate-playlist.js",
-    "serve": "npm run playlist && ares-server .",
-    "package:webos": "npm run playlist && ares-package ."
+    "serve": "npm run playlist && npm run build:wasm && npm run prepare:vendor && ares-server .",
+    "package:webos": "npm run playlist && npm run build:wasm && npm run prepare:vendor && ares-package ."
+  },
+  "devDependencies": {
+    "mpg123-decoder": "^1.0.3",
+    "wabt": "^1.0.37"
   }
 }

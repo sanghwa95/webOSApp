@@ -19,6 +19,8 @@
             this.inputNode = null;
             this.gainNode = null;
             this.processorNode = null;
+            this.beforePlayHook = null;
+            this.beforePlayPromise = null;
 
             this.buffer = null;
             this.sourceNode = null;
@@ -161,7 +163,9 @@
                     await response.arrayBuffer();
 
                 const decodedBuffer =
-                    await this.decodeAudioData(bytes);
+                    await this.decodeMpegWithWasm(
+                        bytes
+                    );
 
                 if (
                     currentLoadToken !== this.loadToken
@@ -193,14 +197,83 @@
             }
         }
 
-        decodeAudioData(bytes) {
-            return new Promise((resolve, reject) => {
-                this.context.decodeAudioData(
-                    bytes,
-                    resolve,
-                    reject
+        async decodeMpegWithWasm(bytes) {
+            const decoderLibrary =
+                window["mpg123-decoder"];
+
+            if (
+                !decoderLibrary ||
+                !decoderLibrary.MPEGDecoder
+            ) {
+                throw new Error(
+                    "WASM MP3 decoder is not available."
                 );
-            });
+            }
+
+            const decoder =
+                new decoderLibrary.MPEGDecoder();
+
+            try {
+                await decoder.ready;
+
+                const result = decoder.decode(
+                    new Uint8Array(bytes)
+                );
+
+                if (
+                    !result.channelData ||
+                    result.channelData.length === 0 ||
+                    result.samplesDecoded <= 0
+                ) {
+                    throw new Error(
+                        "WASM MP3 decoder returned no PCM data."
+                    );
+                }
+
+                if (
+                    result.errors &&
+                    result.errors.length > 0
+                ) {
+                    console.warn(
+                        "MP3 was decoded with recoverable errors:",
+                        result.errors
+                    );
+                }
+
+                const channelCount = Math.min(
+                    result.channelData.length,
+                    2
+                );
+
+                const audioBuffer =
+                    this.context.createBuffer(
+                        channelCount,
+                        result.samplesDecoded,
+                        result.sampleRate
+                    );
+
+                for (
+                    let channel = 0;
+                    channel < channelCount;
+                    channel += 1
+                ) {
+                    audioBuffer
+                        .getChannelData(channel)
+                        .set(
+                            result.channelData[
+                                channel
+                            ]
+                        );
+                }
+
+                console.log(
+                    "MP3 decoded to PCM with WASM mpg123."
+                );
+
+                return audioBuffer;
+            } finally {
+                decoder.free();
+            }
         }
 
         async play() {
@@ -229,6 +302,7 @@
             }
 
             await resumePromise;
+            await this.runBeforePlayHook();
 
             if (this.offset >= this.duration) {
                 this.offset = 0;
@@ -264,6 +338,40 @@
 
             this.startTimeUpdates();
             this.dispatchEvent("play");
+        }
+
+        setBeforePlayHook(hook) {
+            this.beforePlayHook =
+                typeof hook === "function"
+                    ? hook
+                    : null;
+
+            this.beforePlayPromise = null;
+        }
+
+        async runBeforePlayHook() {
+            if (!this.beforePlayHook) {
+                return false;
+            }
+
+            if (!this.beforePlayPromise) {
+                this.beforePlayPromise =
+                    Promise.resolve()
+                        .then(() => {
+                            return this.beforePlayHook();
+                        })
+                        .catch((error) => {
+                            console.warn(
+                                "Audio processor initialization failed. " +
+                                "Playback will continue without DSP.",
+                                error
+                            );
+
+                            return false;
+                        });
+            }
+
+            return this.beforePlayPromise;
         }
 
         async resume() {
