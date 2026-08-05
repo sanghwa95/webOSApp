@@ -3,7 +3,7 @@
 
     class Mp3Player {
         constructor(options) {
-            this.audio = options.audio;
+            this.audioEngine = options.audioEngine;
             this.playlistElement = options.playlistElement;
             this.trackTitleElement = options.trackTitleElement;
             this.trackArtistElement = options.trackArtistElement;
@@ -23,6 +23,7 @@
 
             this.tracks = [];
             this.currentTrackIndex = -1;
+            this.loadedTrackIndex = -1;
             this.isSeeking = false;
 
             this.handleTimeUpdate =
@@ -54,7 +55,15 @@
                 Number(this.volumeBar.value) / 100
             );
 
-            this.loadTrack(0, false);
+            const firstTrack =
+                this.selectTrack(0);
+
+            this.setMessage(
+                `${firstTrack.title}을(를) 재생하려면 재생 버튼을 누르세요.`,
+                false
+            );
+
+            this.updatePlayingState(false);
         }
 
         attachEvents() {
@@ -103,35 +112,35 @@
                 }
             );
 
-            this.audio.addEventListener(
+            this.audioEngine.addEventListener(
                 "timeupdate",
                 this.handleTimeUpdate
             );
 
-            this.audio.addEventListener(
+            this.audioEngine.addEventListener(
                 "loadedmetadata",
                 this.handleLoadedMetadata
             );
 
-            this.audio.addEventListener(
+            this.audioEngine.addEventListener(
                 "ended",
                 this.handleTrackEnded
             );
 
-            this.audio.addEventListener(
+            this.audioEngine.addEventListener(
                 "error",
                 this.handleAudioError
             );
 
-            this.audio.addEventListener(
+            this.audioEngine.addEventListener(
                 "play",
                 () => this.updatePlayingState(true)
             );
 
-            this.audio.addEventListener(
+            this.audioEngine.addEventListener(
                 "pause",
                 () => {
-                    if (!this.audio.ended) {
+                    if (!this.audioEngine.ended) {
                         this.updatePlayingState(false);
                     }
                 }
@@ -180,19 +189,18 @@
             });
         }
 
-        loadTrack(index, autoPlay) {
+        selectTrack(index) {
             if (
                 index < 0 ||
                 index >= this.tracks.length
             ) {
-                return;
+                return null;
             }
 
             const track = this.tracks[index];
 
             this.currentTrackIndex = index;
-            this.audio.src = track.src;
-            this.audio.load();
+            this.loadedTrackIndex = -1;
 
             this.trackTitleElement.textContent =
                 track.title;
@@ -209,25 +217,80 @@
 
             this.highlightCurrentTrack();
 
+            return track;
+        }
+
+        async loadTrack(index, autoPlay) {
+            const track = this.selectTrack(index);
+
+            if (!track) {
+                return;
+            }
+
+            const resumePromise = autoPlay
+                ? this.audioEngine.resume()
+                : Promise.resolve();
+
             this.setMessage(
-                `${track.title}을(를) 불러왔습니다.`,
+                `${track.title}을(를) 불러오는 중입니다.`,
                 false
             );
 
-            if (autoPlay) {
-                this.play();
-            } else {
-                this.updatePlayingState(false);
+            try {
+                const loaded =
+                    await this.audioEngine.load(
+                        track.src
+                    );
+
+                if (
+                    !loaded ||
+                    this.currentTrackIndex !== index
+                ) {
+                    return;
+                }
+
+                this.loadedTrackIndex = index;
+
+                this.setMessage(
+                    `${track.title}을(를) 불러왔습니다.`,
+                    false
+                );
+
+                if (autoPlay) {
+                    await resumePromise;
+                    await this.play();
+                } else {
+                    this.updatePlayingState(false);
+                }
+            } catch (error) {
+                if (this.currentTrackIndex === index) {
+                    console.error(
+                        "Track loading failed:",
+                        error
+                    );
+                }
             }
         }
 
         async play() {
             if (this.currentTrackIndex < 0) {
-                this.loadTrack(0, false);
+                this.selectTrack(0);
+            }
+
+            if (
+                this.loadedTrackIndex !==
+                this.currentTrackIndex
+            ) {
+                await this.loadTrack(
+                    this.currentTrackIndex,
+                    true
+                );
+
+                return;
             }
 
             try {
-                await this.audio.play();
+                await this.audioEngine.play();
             } catch (error) {
                 console.error("Audio play failed:", error);
 
@@ -239,11 +302,11 @@
         }
 
         pause() {
-            this.audio.pause();
+            this.audioEngine.pause();
         }
 
         togglePlay() {
-            if (this.audio.paused) {
+            if (this.audioEngine.paused) {
                 this.play();
             } else {
                 this.pause();
@@ -251,8 +314,7 @@
         }
 
         stop() {
-            this.audio.pause();
-            this.audio.currentTime = 0;
+            this.audioEngine.stop();
 
             this.seekBar.value = "0";
             this.currentTimeElement.textContent = "00:00";
@@ -282,29 +344,35 @@
         }
 
         seekBackward(seconds) {
-            if (!Number.isFinite(this.audio.duration)) {
+            if (!Number.isFinite(
+                this.audioEngine.duration
+            )) {
                 return;
             }
 
-            this.audio.currentTime = Math.max(
+            this.audioEngine.currentTime = Math.max(
                 0,
-                this.audio.currentTime - seconds
+                this.audioEngine.currentTime - seconds
             );
         }
 
         seekForward(seconds) {
-            if (!Number.isFinite(this.audio.duration)) {
+            if (!Number.isFinite(
+                this.audioEngine.duration
+            )) {
                 return;
             }
 
-            this.audio.currentTime = Math.min(
-                this.audio.duration,
-                this.audio.currentTime + seconds
+            this.audioEngine.currentTime = Math.min(
+                this.audioEngine.duration,
+                this.audioEngine.currentTime + seconds
             );
         }
 
         previewSeek() {
-            if (!Number.isFinite(this.audio.duration)) {
+            if (!Number.isFinite(
+                this.audioEngine.duration
+            )) {
                 return;
             }
 
@@ -313,14 +381,16 @@
                 Number(this.seekBar.max);
 
             const previewTime =
-                ratio * this.audio.duration;
+                ratio * this.audioEngine.duration;
 
             this.currentTimeElement.textContent =
                 this.formatTime(previewTime);
         }
 
         seek() {
-            if (!Number.isFinite(this.audio.duration)) {
+            if (!Number.isFinite(
+                this.audioEngine.duration
+            )) {
                 return;
             }
 
@@ -328,8 +398,8 @@
                 Number(this.seekBar.value) /
                 Number(this.seekBar.max);
 
-            this.audio.currentTime =
-                ratio * this.audio.duration;
+            this.audioEngine.currentTime =
+                ratio * this.audioEngine.duration;
         }
 
         setVolume(volume) {
@@ -338,7 +408,7 @@
                 Math.max(0, volume)
             );
 
-            this.audio.volume = safeVolume;
+            this.audioEngine.setVolume(safeVolume);
 
             const percent = Math.round(
                 safeVolume * 100
@@ -351,19 +421,21 @@
 
         changeVolume(amount) {
             this.setVolume(
-                this.audio.volume + amount
+                this.audioEngine.volume + amount
             );
         }
 
         handleTimeUpdate() {
             if (!this.isSeeking) {
                 if (
-                    Number.isFinite(this.audio.duration) &&
-                    this.audio.duration > 0
+                    Number.isFinite(
+                        this.audioEngine.duration
+                    ) &&
+                    this.audioEngine.duration > 0
                 ) {
                     const ratio =
-                        this.audio.currentTime /
-                        this.audio.duration;
+                        this.audioEngine.currentTime /
+                        this.audioEngine.duration;
 
                     this.seekBar.value = String(
                         Math.round(
@@ -375,14 +447,16 @@
 
                 this.currentTimeElement.textContent =
                     this.formatTime(
-                        this.audio.currentTime
+                        this.audioEngine.currentTime
                     );
             }
         }
 
         handleLoadedMetadata() {
             this.durationElement.textContent =
-                this.formatTime(this.audio.duration);
+                this.formatTime(
+                    this.audioEngine.duration
+                );
         }
 
         handleTrackEnded() {
@@ -435,12 +509,12 @@
                 );
 
                 this.statusElement.textContent =
-                    this.audio.currentTime > 0
+                    this.audioEngine.currentTime > 0
                         ? "일시정지"
                         : "준비";
 
                 this.statusElement.className =
-                    this.audio.currentTime > 0
+                    this.audioEngine.currentTime > 0
                         ? "status paused"
                         : "status";
 

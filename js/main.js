@@ -112,9 +112,17 @@
     }
 
     function createPlayer() {
+        const audioEngine =
+            createAudioEngine();
+
+        window.astnovaAudioEngine =
+            audioEngine;
+
+        window.astnovaAudioMode =
+            audioEngine.mode;
+
         return new window.Mp3Player({
-            audio:
-                document.getElementById("audioPlayer"),
+            audioEngine,
 
             playlistElement:
                 document.getElementById("playlist"),
@@ -168,6 +176,47 @@
                     "albumInitial"
                 )
         });
+    }
+
+    function createAudioEngine() {
+        const query =
+            new URLSearchParams(
+                window.location.search
+            );
+
+        const forcedEngine =
+            query.get("audioEngine");
+
+        const isSimulator =
+            Boolean(window._simulator_exposed);
+
+        const useHtmlAudio =
+            forcedEngine === "html" ||
+            (
+                forcedEngine !== "web" &&
+                isSimulator
+            );
+
+        if (useHtmlAudio) {
+            console.info(
+                "HTML audio fallback is active.",
+                isSimulator
+                    ? "webOS Simulator detected."
+                    : "Fallback was requested."
+            );
+
+            return new window.HtmlAudioEngine(
+                document.getElementById(
+                    "audioPlayer"
+                )
+            );
+        }
+
+        console.info(
+            "Web Audio engine is active."
+        );
+
+        return new window.AudioEngine();
     }
 
     function setLoadingState(element, message) {
