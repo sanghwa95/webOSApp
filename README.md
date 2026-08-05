@@ -1,1 +1,1 @@
-# WebOS 용 tunning tool
+# WebOS용 tunning tool
