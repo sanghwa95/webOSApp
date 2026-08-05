@@ -1,0 +1,10 @@
+{
+  "name": "astnova-webos-mp3-player",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "playlist": "node tools/generate-playlist.js",
+    "serve": "npm run playlist && ares-server .",
+    "package:webos": "npm run playlist && ares-package ."
+  }
+}
