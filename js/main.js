@@ -1,3 +1,7 @@
+/*
+ * 파일 역할: webOS MP3 튜닝 앱의 진입점입니다.
+ * 재생 목록, 오디오 엔진, 플레이어, 리모컨, DSP 모듈을 순서대로 초기화합니다.
+ */
 (function () {
     "use strict";
 
@@ -6,6 +10,7 @@
         initializeApp
     );
 
+    /** 앱에 필요한 모든 구성 요소를 생성하고 서로 연결합니다. */
     async function initializeApp() {
         const messageElement =
             document.getElementById("messageText");
@@ -67,6 +72,7 @@
         }
     }
 
+    /** playlist.json을 읽어 재생 가능한 트랙 목록을 반환합니다. */
     async function loadTracks() {
         const response = await fetch(
             `mp3/playlist.json?t=${Date.now()}`,
@@ -95,6 +101,7 @@
             .map(normalizeTrack);
     }
 
+    /** 트랙 객체에 재생에 필요한 제목과 경로가 있는지 검사합니다. */
     function isValidTrack(track) {
         return Boolean(
             track &&
@@ -103,6 +110,7 @@
         );
     }
 
+    /** 누락된 트랙 정보를 기본값으로 보완해 플레이어 형식으로 변환합니다. */
     function normalizeTrack(track) {
         return {
             id: track.id,
@@ -124,6 +132,7 @@
         };
     }
 
+    /** 오디오 엔진과 화면 요소를 연결한 Mp3Player 인스턴스를 생성합니다. */
     function createPlayer() {
         const audioEngine =
             createAudioEngine();
@@ -191,6 +200,7 @@
         });
     }
 
+    /** 기본 Web Audio 엔진 또는 명시적으로 요청된 HTML Audio 대체 엔진을 생성합니다. */
     function createAudioEngine() {
         const query =
             new URLSearchParams(
@@ -222,11 +232,13 @@
         return new window.AudioEngine();
     }
 
+    /** 초기화 진행 메시지를 표시하고 오류 스타일을 제거합니다. */
     function setLoadingState(element, message) {
         element.textContent = message;
         element.classList.remove("error");
     }
 
+    /** 앱 초기화 실패 원인을 화면의 메시지와 상태 영역에 표시합니다. */
     function showInitializationError(
         element,
         error

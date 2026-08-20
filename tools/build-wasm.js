@@ -1,14 +1,17 @@
+/*
+ * 파일 역할: native/dsp.c를 Emscripten으로 컴파일해 실행 가능한 DSP WASM을 만듭니다.
+ */
 "use strict";
 
 const fs = require("fs");
 const path = require("path");
-const wabtFactory = require("wabt");
+const { spawnSync } = require("child_process");
 
 const projectRoot = path.resolve(__dirname, "..");
 const sourceFile = path.join(
     projectRoot,
-    "wasm",
-    "dsp.wat"
+    "native",
+    "dsp.c"
 );
 
 const outputFile = path.join(
@@ -17,43 +20,145 @@ const outputFile = path.join(
     "dsp.wasm"
 );
 
-async function build() {
-    const wabt = await wabtFactory();
-    const source = fs.readFileSync(
+/** Windows 배치 파일이나 PATH 명령은 셸을 통해 실행해야 하는지 확인합니다. */
+function shouldUseShell(compiler) {
+    if (process.platform !== "win32") {
+        return false;
+    }
+
+    const extension = path.extname(compiler).toLowerCase();
+
+    return extension === "" ||
+        extension === ".bat" ||
+        extension === ".cmd";
+}
+
+/** emsdk 경로가 제공된 경우 emcc가 사용할 설정 파일도 자식 프로세스에 전달합니다. */
+function createCompilerEnvironment() {
+    const environment = { ...process.env };
+
+    if (!environment.EM_CONFIG && environment.EMSDK) {
+        const configFile = path.join(
+            environment.EMSDK,
+            ".emscripten"
+        );
+
+        if (fs.existsSync(configFile)) {
+            environment.EM_CONFIG = configFile;
+        }
+    }
+
+    return environment;
+}
+
+/** 생성된 WASM의 ABI와 PCM gain 연산을 실행해 C 빌드 결과를 검증합니다. */
+function validateWasm(bytes) {
+    const module = new WebAssembly.Module(bytes);
+    const imports = WebAssembly.Module.imports(module);
+
+    if (imports.length > 0) {
+        throw new Error(
+            "DSP WASM must not require runtime imports."
+        );
+    }
+
+    const instance = new WebAssembly.Instance(
+        module,
+        {}
+    );
+
+    const exports = instance.exports;
+
+    if (
+        !(exports.memory instanceof WebAssembly.Memory) ||
+        typeof exports.get_sample_buffer !== "function" ||
+        typeof exports.process_pcm !== "function"
+    ) {
+        throw new Error(
+            "DSP WASM exports are incomplete."
+        );
+    }
+
+    if (typeof exports._initialize === "function") {
+        exports._initialize();
+    }
+
+    const samples = new Float32Array(
+        exports.memory.buffer,
+        exports.get_sample_buffer(),
+        2
+    );
+
+    samples.set([1, -0.5]);
+    exports.process_pcm(2, 1, 0.5);
+
+    if (
+        Math.abs(samples[0] - 0.5) > 0.000001 ||
+        Math.abs(samples[1] + 0.25) > 0.000001
+    ) {
+        throw new Error(
+            "DSP WASM PCM gain validation failed."
+        );
+    }
+}
+
+/** C 소스를 최적화된 독립 WASM으로 컴파일하고 검증된 결과만 배포 경로에 저장합니다. */
+function build() {
+    const compiler = "emcc";
+    const argumentsList = [
         sourceFile,
-        "utf8"
+        "-O3",
+        "--no-entry",
+        "-sSTANDALONE_WASM=1",
+        "-sEXPORTED_FUNCTIONS=_get_sample_buffer,_process_pcm",
+        "-sINITIAL_MEMORY=131072",
+        "-sSTACK_SIZE=32768",
+        "-sALLOW_MEMORY_GROWTH=0",
+        "-o",
+        outputFile
+    ];
+
+    const result = spawnSync(
+        compiler,
+        argumentsList,
+        {
+            cwd: projectRoot,
+            env: createCompilerEnvironment(),
+            shell: shouldUseShell(compiler),
+            stdio: "inherit"
+        }
     );
 
-    const module = wabt.parseWat(
-        sourceFile,
-        source
-    );
+    if (result.error) {
+        throw new Error(
+            "Emscripten emcc를 실행할 수 없습니다. " +
+            "emsdk를 설치·활성화하거나 EMCC 환경 변수를 설정하세요.",
+            { cause: result.error }
+        );
+    }
 
-    module.resolveNames();
-    module.validate();
+    if (result.status !== 0) {
+        throw new Error(
+            `Emscripten build failed with exit code ${result.status}.`
+        );
+    }
 
-    const result = module.toBinary({
-        log: false,
-        write_debug_names: true
-    });
+    const bytes = fs.readFileSync(outputFile);
 
-    fs.writeFileSync(
-        outputFile,
-        Buffer.from(result.buffer)
-    );
-
-    module.destroy();
+    validateWasm(bytes);
 
     console.log(
-        `WASM build complete: ${outputFile}`
+        `C to WASM build complete: ${outputFile}`
     );
 }
 
-build().catch((error) => {
+try {
+    build();
+} catch (error) {
     console.error(
         "WASM build failed:",
         error
     );
 
     process.exitCode = 1;
-});
+}

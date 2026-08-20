@@ -1,2 +1,2 @@
-# Auto detect text files and perform LF normalization
+# 파일 역할: 프로젝트 텍스트 파일의 줄바꿈을 Git이 일관되게 정규화하도록 설정합니다.
 * text=auto

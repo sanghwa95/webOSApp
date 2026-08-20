@@ -1,3 +1,7 @@
+/*
+ * 파일 역할: Web Audio 렌더링 스레드에서 PCM 블록을 받아 DSP WASM으로 전달합니다.
+ * WASM 처리 결과를 출력 버퍼에 기록하며, 초기화 실패 시 원본 PCM을 통과시킵니다.
+ */
 "use strict";
 
 const MAX_CHANNELS = 2;
@@ -8,6 +12,20 @@ const MAX_SAMPLES =
 class AstnovaPcmProcessor
     extends AudioWorkletProcessor {
 
+    /** 메인 스레드의 볼륨 값을 오디오 블록 단위로 안전하게 전달받습니다. */
+    static get parameterDescriptors() {
+        return [
+            {
+                name: "gain",
+                defaultValue: 1,
+                minValue: 0,
+                maxValue: 1,
+                automationRate: "k-rate"
+            }
+        ];
+    }
+
+    /** 전달받은 WASM 바이트를 인스턴스화하고 공유 PCM 메모리 뷰를 준비합니다. */
     constructor(options) {
         super();
 
@@ -28,6 +46,13 @@ class AstnovaPcmProcessor
                     wasmModule,
                     {}
                 );
+
+            if (
+                typeof this.instance.exports
+                    ._initialize === "function"
+            ) {
+                this.instance.exports._initialize();
+            }
 
             this.memory =
                 this.instance.exports.memory;
@@ -51,10 +76,15 @@ class AstnovaPcmProcessor
             });
         }
     }
-
-    process(inputs, outputs) {
+    /** 입력 PCM을 WASM에서 처리한 뒤 Web Audio 출력 버퍼에 기록합니다. */
+    process(inputs, outputs, parameters) {
         const input = inputs[0];
         const output = outputs[0];
+        const gainValues = parameters.gain;
+        const gain =
+            gainValues && gainValues.length > 0
+                ? gainValues[0]
+                : 1;
 
         if (
             !input ||
@@ -80,7 +110,8 @@ class AstnovaPcmProcessor
         ) {
             this.copyInputToOutput(
                 input,
-                output
+                output,
+                gain
             );
 
             return true;
@@ -104,7 +135,8 @@ class AstnovaPcmProcessor
 
         this.instance.exports.process_pcm(
             frameCount,
-            channelCount
+            channelCount,
+            gain
         );
 
         for (
@@ -131,6 +163,7 @@ class AstnovaPcmProcessor
         return true;
     }
 
+    /** WASM 메모리가 변경되었을 때 PCM용 Float32Array 뷰를 다시 생성합니다. */
     refreshSampleView() {
         if (
             this.sampleView &&
@@ -147,7 +180,8 @@ class AstnovaPcmProcessor
         );
     }
 
-    copyInputToOutput(input, output) {
+    /** DSP를 사용할 수 없을 때 입력 채널을 출력 채널로 그대로 복사합니다. */
+    copyInputToOutput(input, output, gain) {
         for (
             let channel = 0;
             channel < output.length;
@@ -157,18 +191,29 @@ class AstnovaPcmProcessor
                 input[channel] || input[0];
 
             if (source) {
-                output[channel].set(source);
+                const destination = output[channel];
+
+                for (
+                    let frame = 0;
+                    frame < destination.length;
+                    frame += 1
+                ) {
+                    destination[frame] =
+                        source[frame] * gain;
+                }
             } else {
                 output[channel].fill(0);
             }
         }
     }
 
+    /** 출력 가능한 PCM 버퍼의 모든 채널을 무음으로 초기화합니다. */
     clearOutput(output) {
         if (!output) {
             return;
         }
 
+        // 각 출력 채널을 0으로 채우는 콜백입니다.
         output.forEach((channel) => {
             channel.fill(0);
         });

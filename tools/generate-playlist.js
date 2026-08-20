@@ -1,3 +1,6 @@
+/*
+ * 파일 역할: mp3 폴더를 검색해 앱이 읽을 mp3/playlist.json을 자동 생성합니다.
+ */
 "use strict";
 
 const fs = require("fs");
@@ -11,6 +14,7 @@ const supportedExtensions = new Set([
     ".mp3"
 ]);
 
+/** MP3 파일명에서 확장자와 구분 문자를 정리해 화면 표시용 제목을 만듭니다. */
 function createTitleFromFilename(filename) {
     const extension = path.extname(filename);
     const nameWithoutExtension = path.basename(
@@ -24,6 +28,7 @@ function createTitleFromFilename(filename) {
         .trim();
 }
 
+/** 숫자가 포함된 파일명을 사람이 기대하는 순서로 정렬합니다. */
 function compareFilenames(left, right) {
     return left.localeCompare(
         right,
@@ -35,6 +40,7 @@ function compareFilenames(left, right) {
     );
 }
 
+/** MP3 파일을 수집·정렬하고 트랙 객체로 변환해 playlist.json에 저장합니다. */
 function generatePlaylist() {
     if (!fs.existsSync(mp3Directory)) {
         throw new Error(
@@ -50,6 +56,7 @@ function generatePlaylist() {
     );
 
     const mp3Files = directoryEntries
+        // 일반 파일이면서 지원 확장자를 가진 항목만 남깁니다.
         .filter((entry) => {
             if (!entry.isFile()) {
                 return false;
@@ -65,6 +72,7 @@ function generatePlaylist() {
         .sort(compareFilenames);
 
     const tracks = mp3Files.map(
+        // 각 파일명을 플레이어가 사용하는 트랙 객체로 변환합니다.
         (filename, index) => {
             return {
                 id: index + 1,
@@ -94,6 +102,7 @@ function generatePlaylist() {
 
     console.log(`출력 파일: ${outputFile}`);
 
+    // 생성된 재생 목록을 개발자가 확인할 수 있도록 출력합니다.
     tracks.forEach((track, index) => {
         console.log(
             `${index + 1}. ${track.filename}`

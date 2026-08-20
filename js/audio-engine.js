@@ -1,7 +1,12 @@
+/*
+ * 파일 역할: mpg123 WASM으로 MP3를 PCM으로 디코딩하고 Web Audio 그래프로 재생합니다.
+ * 재생 상태, 탐색, 볼륨, 이벤트 및 DSP AudioWorklet 연결을 함께 관리합니다.
+ */
 (function () {
     "use strict";
 
     class AudioEngine {
+        /** Web Audio 지원을 확인하고 재생 상태의 초기값을 설정합니다. */
         constructor() {
             const AudioContextClass =
                 window.AudioContext ||
@@ -39,6 +44,7 @@
             this.timeUpdateTimer = null;
         }
 
+        /** AudioContext와 기본 입력·볼륨·출력 노드를 필요할 때 한 번 생성합니다. */
         ensureContext() {
             if (this.context) {
                 return;
@@ -64,6 +70,7 @@
             );
         }
 
+        /** 엔진의 사용자 정의 이벤트에 리스너를 등록합니다. */
         addEventListener(type, listener) {
             if (!this.listeners.has(type)) {
                 this.listeners.set(type, new Set());
@@ -72,6 +79,7 @@
             this.listeners.get(type).add(listener);
         }
 
+        /** 등록된 사용자 정의 이벤트 리스너를 제거합니다. */
         removeEventListener(type, listener) {
             const typeListeners =
                 this.listeners.get(type);
@@ -81,6 +89,7 @@
             }
         }
 
+        /** 지정한 타입의 엔진 이벤트를 모든 등록 리스너에 전달합니다. */
         dispatchEvent(type, detail) {
             const typeListeners =
                 this.listeners.get(type);
@@ -107,6 +116,7 @@
             });
         }
 
+        /** 기존 재생을 정리하고 지정한 MP3 파일의 비동기 로딩을 시작합니다. */
         async load(src) {
             if (!src) {
                 throw new Error(
@@ -146,6 +156,7 @@
             return this.loadPromise;
         }
 
+        /** MP3 바이트를 가져와 mpg123 WASM으로 디코딩하고 AudioBuffer로 저장합니다. */
         async fetchAndDecode(
             src,
             currentLoadToken
@@ -197,6 +208,7 @@
             }
         }
 
+        /** MP3 바이트를 채널별 Float32 PCM으로 디코딩해 Web Audio AudioBuffer를 만듭니다. */
         async decodeMpegWithWasm(bytes) {
             const decoderLibrary =
                 window["mpg123-decoder"];
@@ -276,6 +288,7 @@
             }
         }
 
+        /** 준비된 AudioBuffer를 현재 오프셋부터 새 source 노드로 재생합니다. */
         async play() {
             const resumePromise = this.resume();
 
@@ -340,6 +353,7 @@
             this.dispatchEvent("play");
         }
 
+        /** 최초 재생 직전에 실행할 DSP 초기화 함수를 등록합니다. */
         setBeforePlayHook(hook) {
             this.beforePlayHook =
                 typeof hook === "function"
@@ -349,6 +363,7 @@
             this.beforePlayPromise = null;
         }
 
+        /** 등록된 재생 전 훅을 한 번만 실행하고 같은 Promise를 재사용합니다. */
         async runBeforePlayHook() {
             if (!this.beforePlayHook) {
                 return false;
@@ -374,6 +389,7 @@
             return this.beforePlayPromise;
         }
 
+        /** 사용자 입력 이후 AudioContext가 중지 상태라면 다시 활성화합니다. */
         async resume() {
             this.ensureContext();
 
@@ -382,6 +398,7 @@
             }
         }
 
+        /** 현재 위치를 저장하고 source 노드를 정지해 재생을 일시정지합니다. */
         pause() {
             if (this.paused) {
                 return;
@@ -398,6 +415,7 @@
             this.dispatchEvent("pause");
         }
 
+        /** 재생을 멈추고 재생 위치를 곡의 시작으로 초기화합니다. */
         stop() {
             const wasPlaying = !this.paused;
 
@@ -415,6 +433,7 @@
             }
         }
 
+        /** 재생 위치를 지정한 초로 옮기고 필요하면 새 source로 재생을 재개합니다. */
         seek(seconds) {
             if (!this.buffer) {
                 return;
@@ -452,6 +471,7 @@
             }
         }
 
+        /** 볼륨을 0~1 범위로 제한해 PCM 프로세서 또는 대체 GainNode에 적용합니다. */
         setVolume(volume) {
             const safeVolume = Math.min(
                 1,
@@ -461,13 +481,29 @@
             this.volume = safeVolume;
 
             if (this.gainNode && this.context) {
+                const processorGain =
+                    this.processorNode &&
+                    this.processorNode.parameters
+                        ? this.processorNode.parameters.get(
+                            "gain"
+                        )
+                        : null;
+
+                if (processorGain) {
+                    processorGain.setValueAtTime(
+                        safeVolume,
+                        this.context.currentTime
+                    );
+                }
+
                 this.gainNode.gain.setValueAtTime(
-                    safeVolume,
+                    processorGain ? 1 : safeVolume,
                     this.context.currentTime
                 );
             }
         }
 
+        /** 오디오 입력과 출력 사이에 PCM 처리용 AudioWorkletNode를 연결합니다. */
         setProcessorNode(processorNode) {
             this.ensureContext();
             this.inputNode.disconnect();
@@ -489,8 +525,11 @@
             } else {
                 this.inputNode.connect(this.gainNode);
             }
+
+            this.setVolume(this.volume);
         }
 
+        /** 저장된 오프셋과 AudioContext 시간을 이용해 현재 재생 위치를 계산합니다. */
         get currentTime() {
             if (this.paused) {
                 return this.offset;
@@ -510,10 +549,12 @@
             );
         }
 
+        /** currentTime 대입을 seek 호출로 변환합니다. */
         set currentTime(seconds) {
             this.seek(seconds);
         }
 
+        /** UI 갱신용 timeupdate 이벤트를 250ms 간격으로 발생시킵니다. */
         startTimeUpdates() {
             this.stopTimeUpdates();
 
@@ -525,6 +566,7 @@
             );
         }
 
+        /** 실행 중인 timeupdate 타이머를 해제합니다. */
         stopTimeUpdates() {
             if (this.timeUpdateTimer !== null) {
                 window.clearInterval(
@@ -535,6 +577,7 @@
             }
         }
 
+        /** 현재 AudioBufferSourceNode를 안전하게 정지하고 연결을 해제합니다. */
         stopSource() {
             this.sourceToken += 1;
 
@@ -559,6 +602,7 @@
             source.disconnect();
         }
 
+        /** 현재 source가 자연 종료된 경우 엔진 상태를 갱신하고 ended 이벤트를 보냅니다. */
         handleSourceEnded(
             source,
             currentSourceToken
@@ -582,6 +626,7 @@
             this.dispatchEvent("ended");
         }
 
+        /** 모든 노드와 타이머, 버퍼, AudioContext 및 이벤트 리스너를 정리합니다. */
         async destroy() {
             this.stop();
             this.loadToken += 1;

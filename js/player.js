@@ -1,7 +1,12 @@
+/*
+ * 파일 역할: 오디오 엔진을 화면 UI와 연결하는 MP3 플레이어 컨트롤러입니다.
+ * 재생 목록, 곡 선택, 재생 제어, 탐색, 볼륨 및 상태 표시를 관리합니다.
+ */
 (function () {
     "use strict";
 
     class Mp3Player {
+        /** 오디오 엔진과 플레이어 UI 요소를 저장하고 이벤트 핸들러를 바인딩합니다. */
         constructor(options) {
             this.audioEngine = options.audioEngine;
             this.playlistElement = options.playlistElement;
@@ -39,6 +44,7 @@
                 this.handleAudioError.bind(this);
         }
 
+        /** 트랙 목록을 검증하고 UI·이벤트·초기 선택 곡과 볼륨을 준비합니다. */
         initialize(tracks) {
             if (!Array.isArray(tracks) || tracks.length === 0) {
                 throw new Error(
@@ -66,6 +72,7 @@
             this.updatePlayingState(false);
         }
 
+        /** 화면 컨트롤과 오디오 엔진 이벤트를 플레이어 동작에 연결합니다. */
         attachEvents() {
             this.playButton.addEventListener(
                 "click",
@@ -147,6 +154,7 @@
             );
         }
 
+        /** 트랙 배열을 선택 가능한 재생 목록 버튼으로 렌더링합니다. */
         renderPlaylist() {
             this.playlistElement.innerHTML = "";
 
@@ -189,6 +197,7 @@
             });
         }
 
+        /** 현재 곡 인덱스와 곡 정보 UI를 변경하고 선택된 트랙을 반환합니다. */
         selectTrack(index) {
             if (
                 index < 0 ||
@@ -220,6 +229,7 @@
             return track;
         }
 
+        /** 지정한 트랙을 오디오 엔진에 로드하고 요청에 따라 바로 재생합니다. */
         async loadTrack(index, autoPlay) {
             const track = this.selectTrack(index);
 
@@ -272,6 +282,7 @@
             }
         }
 
+        /** 선택한 곡이 준비되지 않았으면 로드한 뒤 오디오 엔진 재생을 시작합니다. */
         async play() {
             if (this.currentTrackIndex < 0) {
                 this.selectTrack(0);
@@ -301,10 +312,12 @@
             }
         }
 
+        /** 오디오 엔진에 일시정지를 요청합니다. */
         pause() {
             this.audioEngine.pause();
         }
 
+        /** 현재 상태에 따라 재생과 일시정지를 전환합니다. */
         togglePlay() {
             if (this.audioEngine.paused) {
                 this.play();
@@ -313,6 +326,7 @@
             }
         }
 
+        /** 재생을 중지하고 시간·상태 UI를 시작 상태로 되돌립니다. */
         stop() {
             this.audioEngine.stop();
 
@@ -325,6 +339,7 @@
             this.setMessage("재생을 정지했습니다.", false);
         }
 
+        /** 현재 곡의 이전 트랙을 순환 방식으로 선택해 재생합니다. */
         playPrevious() {
             const previousIndex =
                 (
@@ -335,6 +350,7 @@
             this.loadTrack(previousIndex, true);
         }
 
+        /** 현재 곡의 다음 트랙을 순환 방식으로 선택해 재생합니다. */
         playNext() {
             const nextIndex =
                 (this.currentTrackIndex + 1) %
@@ -343,6 +359,7 @@
             this.loadTrack(nextIndex, true);
         }
 
+        /** 현재 위치에서 지정한 초만큼 뒤로 이동합니다. */
         seekBackward(seconds) {
             if (!Number.isFinite(
                 this.audioEngine.duration
@@ -356,6 +373,7 @@
             );
         }
 
+        /** 현재 위치에서 지정한 초만큼 앞으로 이동합니다. */
         seekForward(seconds) {
             if (!Number.isFinite(
                 this.audioEngine.duration
@@ -369,6 +387,7 @@
             );
         }
 
+        /** 탐색 바를 드래그하는 동안 실제 이동 전 예상 시간을 표시합니다. */
         previewSeek() {
             if (!Number.isFinite(
                 this.audioEngine.duration
@@ -387,6 +406,7 @@
                 this.formatTime(previewTime);
         }
 
+        /** 탐색 바 비율을 실제 재생 시간으로 변환해 엔진에 적용합니다. */
         seek() {
             if (!Number.isFinite(
                 this.audioEngine.duration
@@ -402,6 +422,7 @@
                 ratio * this.audioEngine.duration;
         }
 
+        /** 볼륨을 안전한 범위로 제한해 엔진과 UI에 함께 적용합니다. */
         setVolume(volume) {
             const safeVolume = Math.min(
                 1,
@@ -419,12 +440,14 @@
                 `${percent}%`;
         }
 
+        /** 현재 볼륨에 상대적인 변화량을 더해 볼륨을 조절합니다. */
         changeVolume(amount) {
             this.setVolume(
                 this.audioEngine.volume + amount
             );
         }
 
+        /** 엔진의 현재 재생 시간을 시간 문자열과 탐색 바에 반영합니다. */
         handleTimeUpdate() {
             if (!this.isSeeking) {
                 if (
@@ -452,6 +475,7 @@
             }
         }
 
+        /** 곡 메타데이터가 준비되면 전체 재생 시간을 표시합니다. */
         handleLoadedMetadata() {
             this.durationElement.textContent =
                 this.formatTime(
@@ -459,10 +483,12 @@
                 );
         }
 
+        /** 현재 곡이 끝나면 다음 곡을 자동 재생합니다. */
         handleTrackEnded() {
             this.playNext();
         }
 
+        /** 오디오 오류를 기록하고 사용자에게 실패 상태를 표시합니다. */
         handleAudioError() {
             const track =
                 this.tracks[this.currentTrackIndex];
@@ -481,6 +507,7 @@
             this.statusElement.className = "status";
         }
 
+        /** 재생 여부에 맞춰 버튼, 상태 문구, 앨범 애니메이션을 갱신합니다. */
         updatePlayingState(isPlaying) {
             if (isPlaying) {
                 this.playButton.textContent = "Ⅱ";
@@ -524,6 +551,7 @@
             }
         }
 
+        /** 재생 목록에서 현재 선택된 트랙에 active 클래스를 적용합니다. */
         highlightCurrentTrack() {
             const buttons =
                 this.playlistElement.querySelectorAll(
@@ -538,6 +566,7 @@
             });
         }
 
+        /** 현재 트랙 버튼에 포커스를 주고 보이는 영역으로 스크롤합니다. */
         focusCurrentTrack() {
             const selector =
                 `[data-track-index="${this.currentTrackIndex}"]`;
@@ -553,6 +582,7 @@
             }
         }
 
+        /** 안내 문구를 표시하고 오류 여부에 따라 스타일을 전환합니다. */
         setMessage(message, isError) {
             this.messageElement.textContent = message;
             this.messageElement.classList.toggle(
@@ -561,6 +591,7 @@
             );
         }
 
+        /** 초 단위 시간을 MM:SS 또는 HH:MM:SS 문자열로 변환합니다. */
         formatTime(seconds) {
             if (!Number.isFinite(seconds) || seconds < 0) {
                 return "00:00";
@@ -592,6 +623,7 @@
             ].join(":");
         }
 
+        /** 앨범 자리 표시자에 사용할 제목의 첫 글자를 반환합니다. */
         getTrackInitial(title) {
             if (!title || title.length === 0) {
                 return "♪";
@@ -600,6 +632,7 @@
             return title.trim().charAt(0).toUpperCase();
         }
 
+        /** 트랙 문자열의 HTML 특수 문자를 이스케이프해 안전하게 렌더링합니다. */
         escapeHtml(value) {
             return String(value)
                 .replace(/&/g, "&amp;")

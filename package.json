@@ -10,7 +10,6 @@
     "package:webos": "npm run playlist && npm run build:wasm && npm run prepare:vendor && ares-package ."
   },
   "devDependencies": {
-    "mpg123-decoder": "^1.0.3",
-    "wabt": "^1.0.37"
+    "mpg123-decoder": "^1.0.3"
   }
 }
