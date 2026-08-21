@@ -20,17 +20,26 @@ const outputFile = path.join(
     "dsp.wasm"
 );
 
-/** Windows 배치 파일이나 PATH 명령은 셸을 통해 실행해야 하는지 확인합니다. */
-function shouldUseShell(compiler) {
-    if (process.platform !== "win32") {
+/** 운영체제에 따라 컴파일러를 셸로 실행할지 결정합니다. */
+function shouldUseShell() {
+    const isWin = process.platform === "win32";
+    const isMac = process.platform === "darwin";
+    const isLinux = process.platform === "linux";
+
+    if (isWin) {
+        // Windows의 emcc는 일반적으로 emcc.bat이므로 cmd.exe가 필요합니다.
+        return true;
+    } else if (isMac) {
+        // macOS에서는 실행 가능한 emcc 스크립트를 직접 실행합니다.
+        return false;
+    } else if (isLinux) {
+        // Linux에서는 실행 가능한 emcc 스크립트를 직접 실행합니다.
         return false;
     }
 
-    const extension = path.extname(compiler).toLowerCase();
-
-    return extension === "" ||
-        extension === ".bat" ||
-        extension === ".cmd";
+    throw new Error(
+        `Unsupported operating system: ${process.platform}`
+    );
 }
 
 /** emsdk 경로가 제공된 경우 emcc가 사용할 설정 파일도 자식 프로세스에 전달합니다. */
@@ -124,7 +133,7 @@ function build() {
         {
             cwd: projectRoot,
             env: createCompilerEnvironment(),
-            shell: shouldUseShell(compiler),
+            shell: shouldUseShell(),
             stdio: "inherit"
         }
     );
