@@ -22,7 +22,6 @@
             this.mode = "web-audio";
             this.context = null;
             this.inputNode = null;
-            this.gainNode = null;
             this.processorNode = null;
             this.beforePlayHook = null;
             this.beforePlayPromise = null;
@@ -44,7 +43,7 @@
             this.timeUpdateTimer = null;
         }
 
-        /** AudioContext와 기본 입력·볼륨·출력 노드를 필요할 때 한 번 생성합니다. */
+        /** AudioContext와 기본 입력·출력 노드를 필요할 때 한 번 생성합니다. */
         ensureContext() {
             if (this.context) {
                 return;
@@ -56,16 +55,7 @@
             this.inputNode =
                 this.context.createGain();
 
-            this.gainNode =
-                this.context.createGain();
-
-            this.gainNode.gain.setValueAtTime(
-                this.volume,
-                this.context.currentTime
-            );
-
-            this.inputNode.connect(this.gainNode);
-            this.gainNode.connect(
+            this.inputNode.connect(
                 this.context.destination
             );
         }
@@ -471,7 +461,7 @@
             }
         }
 
-        /** 볼륨을 0~1 범위로 제한해 PCM 프로세서 또는 대체 GainNode에 적용합니다. */
+        /** 볼륨을 0~1 범위로 제한해 DSP PCM 프로세서에 전달합니다. */
         setVolume(volume) {
             const safeVolume = Math.min(
                 1,
@@ -480,24 +470,17 @@
 
             this.volume = safeVolume;
 
-            if (this.gainNode && this.context) {
-                const processorGain =
-                    this.processorNode &&
-                    this.processorNode.parameters
-                        ? this.processorNode.parameters.get(
-                            "gain"
-                        )
-                        : null;
+            const processorGain =
+                this.processorNode &&
+                this.processorNode.parameters
+                    ? this.processorNode.parameters.get(
+                        "gain"
+                    )
+                    : null;
 
-                if (processorGain) {
-                    processorGain.setValueAtTime(
-                        safeVolume,
-                        this.context.currentTime
-                    );
-                }
-
-                this.gainNode.gain.setValueAtTime(
-                    processorGain ? 1 : safeVolume,
+            if (processorGain && this.context) {
+                processorGain.setValueAtTime(
+                    safeVolume,
                     this.context.currentTime
                 );
             }
@@ -520,10 +503,12 @@
                 );
 
                 this.processorNode.connect(
-                    this.gainNode
+                    this.context.destination
                 );
             } else {
-                this.inputNode.connect(this.gainNode);
+                this.inputNode.connect(
+                    this.context.destination
+                );
             }
 
             this.setVolume(this.volume);
@@ -634,10 +619,6 @@
 
             if (this.inputNode) {
                 this.inputNode.disconnect();
-            }
-
-            if (this.gainNode) {
-                this.gainNode.disconnect();
             }
 
             if (this.processorNode) {

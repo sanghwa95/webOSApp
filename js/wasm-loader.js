@@ -46,7 +46,7 @@
 
             const workletPath =
                 options.workletPath ||
-                "js/dsp-worklet.js?v=0.0.5";
+                "js/dsp-worklet.js?v=0.0.6";
 
             this.audioEngine.ensureContext();
 

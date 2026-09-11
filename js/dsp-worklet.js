@@ -57,6 +57,7 @@ class AstnovaPcmProcessor
             this.memory =
                 this.instance.exports.memory;
 
+            // wasm 함수 호출
             this.samplePointer =
                 this.instance.exports
                     .get_sample_buffer();
@@ -110,8 +111,7 @@ class AstnovaPcmProcessor
         ) {
             this.copyInputToOutput(
                 input,
-                output,
-                gain
+                output
             );
 
             return true;
@@ -133,6 +133,7 @@ class AstnovaPcmProcessor
             );
         }
 
+        // wasm 함수 호출
         this.instance.exports.process_pcm(
             frameCount,
             channelCount,
@@ -181,7 +182,7 @@ class AstnovaPcmProcessor
     }
 
     /** DSP를 사용할 수 없을 때 입력 채널을 출력 채널로 그대로 복사합니다. */
-    copyInputToOutput(input, output, gain) {
+    copyInputToOutput(input, output) {
         for (
             let channel = 0;
             channel < output.length;
@@ -199,7 +200,7 @@ class AstnovaPcmProcessor
                     frame += 1
                 ) {
                     destination[frame] =
-                        source[frame] * gain;
+                        source[frame];
                 }
             } else {
                 output[channel].fill(0);
